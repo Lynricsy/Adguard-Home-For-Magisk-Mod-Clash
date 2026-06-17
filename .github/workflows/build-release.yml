@@ -22,12 +22,14 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Clone upstream rules
+      - name: Fetch upstream rules
         run: |
           git clone --depth=1 https://github.com/liuzq2002/Adguard-Home-For-Magisk-Mod upstream-adguard
           git clone --depth=1 https://github.com/privacy-protection-tools/anti-AD upstream-anti-ad
+          curl -fsSL https://raw.githubusercontent.com/lingeringsound/10007/main/reward -o upstream-coolapk-1007-reward.txt
           echo "ADGUARD_SHA=$(git -C upstream-adguard rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "ANTI_AD_SHA=$(git -C upstream-anti-ad rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "COOLAPK_1007_REWARD_SHA=$(sha256sum upstream-coolapk-1007-reward.txt | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
           echo "RELEASE_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
 
       - name: Build text rule providers
@@ -35,9 +37,11 @@ jobs:
           uv run python -m scripts.build_rulesets \
             --adguard-source upstream-adguard \
             --anti-ad-source upstream-anti-ad \
+            --coolapk-1007-reward-source upstream-coolapk-1007-reward.txt \
             --output dist \
             --adguard-commit "$ADGUARD_SHA" \
-            --anti-ad-commit "$ANTI_AD_SHA"
+            --anti-ad-commit "$ANTI_AD_SHA" \
+            --coolapk-1007-reward-commit "$COOLAPK_1007_REWARD_SHA"
 
       - name: Install latest mihomo
         run: |
@@ -86,6 +90,8 @@ jobs:
             echo "- Upstream commit: \`$ADGUARD_SHA\`"
             echo "- Upstream: https://github.com/privacy-protection-tools/anti-AD"
             echo "- Upstream commit: \`$ANTI_AD_SHA\`"
+            echo "- Upstream: https://raw.githubusercontent.com/lingeringsound/10007/main/reward"
+            echo "- Upstream SHA256: \`$COOLAPK_1007_REWARD_SHA\`"
             echo "- Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo
             cat dist/manifest.md
@@ -94,7 +100,7 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: snapshot-${{ env.ADGUARD_SHA }}-${{ env.ANTI_AD_SHA }}
+          tag_name: snapshot-${{ env.ADGUARD_SHA }}-${{ env.ANTI_AD_SHA }}-${{ env.COOLAPK_1007_REWARD_SHA }}
           name: AdRulesUltra MRS ${{ env.RELEASE_DATE }}
           body_path: release-notes.md
           files: |

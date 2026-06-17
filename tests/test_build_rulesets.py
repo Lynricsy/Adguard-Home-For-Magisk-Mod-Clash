@@ -33,6 +33,26 @@ def test_parse_allow_rule_when_exception_rule() -> None:
     assert collectors[RuleKind.ADS].domains == set()
 
 
+def test_parse_hosts_block_rule_when_sinkhole_entry() -> None:
+    collectors = {kind: RuleCollector() for kind in RuleKind}
+    stats = {kind: ConversionStats() for kind in RuleKind}
+
+    parse_rule("0.0.0.0 ads.example.com", RuleKind.ADS, collectors, stats)
+    parse_rule("127.0.0.1 localhost", RuleKind.ADS, collectors, stats)
+
+    assert collectors[RuleKind.ADS].domains == {"ads.example.com"}
+    assert stats[RuleKind.ADS].domain == 1
+
+
+def test_parse_hosts_block_rule_when_inline_comment_has_domain_text() -> None:
+    collectors = {kind: RuleCollector() for kind in RuleKind}
+    stats = {kind: ConversionStats() for kind in RuleKind}
+
+    parse_rule("0.0.0.0 ads.example.com # note.example.com", RuleKind.ADS, collectors, stats)
+
+    assert collectors[RuleKind.ADS].domains == {"ads.example.com"}
+
+
 def test_parse_ip_rule_when_ipv4_literal() -> None:
     collectors = {kind: RuleCollector() for kind in RuleKind}
     stats = {kind: ConversionStats() for kind in RuleKind}
@@ -184,6 +204,7 @@ def test_parse_adguard_values_when_domain_modifier_not_allowed() -> None:
 def test_convert_repositories_when_multiple_upstreams_have_rules(tmp_path: Path) -> None:
     adguard_source = tmp_path / "adguard"
     anti_ad_source = tmp_path / "anti-ad"
+    reward_source = tmp_path / "reward.txt"
     filters_dir = adguard_source / "Adguardhome" / "bin" / "data" / "filters"
     filters_dir.mkdir(parents=True)
     (adguard_source / "Adguardhome" / "bin").mkdir(exist_ok=True)
@@ -199,13 +220,19 @@ def test_convert_repositories_when_multiple_upstreams_have_rules(tmp_path: Path)
         "@@||anti-safe.example.com^\n||ads.example.com^\n||anti.example.com^\n",
         encoding="utf-8",
     )
+    _ = reward_source.write_text(
+        "#@coolapk 1007\n127.0.0.1 localhost\n0.0.0.0 reward.example.com\n",
+        encoding="utf-8",
+    )
 
     result = convert_repositories(
         adguard_source,
         anti_ad_source,
+        reward_source,
         {
             UpstreamKind.ADGUARD_MAGISK: "adguard-sha",
             UpstreamKind.ANTI_AD: "anti-sha",
+            UpstreamKind.COOLAPK_1007_REWARD: "reward-sha256",
         },
     )
 
@@ -213,6 +240,7 @@ def test_convert_repositories_when_multiple_upstreams_have_rules(tmp_path: Path)
         "+.ads.example.com",
         "+.anti.example.com",
         "+.custom.example.com",
+        "reward.example.com",
     }
     assert result.buckets[RuleKind.ALLOW].domains == {
         "+.anti-safe.example.com",
@@ -221,6 +249,7 @@ def test_convert_repositories_when_multiple_upstreams_have_rules(tmp_path: Path)
     assert result.buckets[RuleKind.MALWARE].domains == {"+.bad.example.com"}
     assert result.upstream_commits[UpstreamKind.ADGUARD_MAGISK] == "adguard-sha"
     assert result.upstream_commits[UpstreamKind.ANTI_AD] == "anti-sha"
+    assert result.upstream_commits[UpstreamKind.COOLAPK_1007_REWARD] == "reward-sha256"
 
 
 def test_build_stats_payload_when_release_assets_exist(tmp_path: Path) -> None:

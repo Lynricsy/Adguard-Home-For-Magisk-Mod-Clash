@@ -21,9 +21,14 @@ CLASH_WILDCARD_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9_*.-]+$")
 IPV4_VERSION: Final[int] = 4
 CIDR_SEPARATOR: Final[str] = "/"
 MIN_DOMAIN_LABELS: Final[int] = 2
+HOSTS_MIN_FIELDS: Final[int] = 2
+HOSTS_BLOCK_ADDRESSES: Final[frozenset[str]] = frozenset({"0.0.0.0", "127.0.0.1", "::", "::1"})  # noqa: S104 - hosts 阻断地址常量
 
 
 def parse_adguard_values(line: str, stat: ConversionStats, *, allow_domain_modifier: bool) -> tuple[str, ...]:
+    hosts_values = parse_hosts_values(line)
+    if hosts_values is not None:
+        return hosts_values
     rule, modifiers = split_modifiers(line)
     if not safe_modifiers(modifiers):
         return parse_unsupported_modifier_rule(rule, stat, allow_domain_modifier=allow_domain_modifier)
@@ -31,6 +36,21 @@ def parse_adguard_values(line: str, stat: ConversionStats, *, allow_domain_modif
         mark_skipped_regex(stat)
         return ()
     return parse_adguard_rule_body(rule, stat)
+
+
+def parse_hosts_values(line: str) -> tuple[str, ...] | None:
+    fields = line.partition("#")[0].split()
+    if len(fields) < HOSTS_MIN_FIELDS or fields[0] not in HOSTS_BLOCK_ADDRESSES:
+        return None
+    return tuple(normalized for host in fields[1:] if (normalized := normalize_hosts_value(host)) is not None)
+
+
+def normalize_hosts_value(host: str) -> str | None:
+    if host == "localhost":
+        return None
+    if ipcidr := as_ipcidr(host):
+        return ipcidr
+    return normalize_domain_pattern(host, has_suffix_semantics=False)
 
 
 def parse_unsupported_modifier_rule(

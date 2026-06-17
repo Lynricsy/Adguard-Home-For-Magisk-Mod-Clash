@@ -22,6 +22,7 @@ OUTPUT_PREFIX: Final[str] = "adrules_ultra"
 def convert_repositories(
     adguard_source_dir: Path,
     anti_ad_source_dir: Path,
+    coolapk_1007_reward_source: Path,
     upstream_commits: dict[UpstreamKind, str],
 ) -> ConversionResult:
     collectors: dict[RuleKind, RuleCollector] = {kind: RuleCollector() for kind in RuleKind}
@@ -29,6 +30,7 @@ def convert_repositories(
 
     parse_adguard_magisk(adguard_source_dir, collectors, stats)
     parse_anti_ad(anti_ad_source_dir, collectors, stats)
+    parse_coolapk_1007_reward(coolapk_1007_reward_source, collectors, stats)
 
     return ConversionResult(
         buckets={kind: collector.freeze() for kind, collector in collectors.items()},
@@ -59,6 +61,14 @@ def parse_anti_ad(
     stats: dict[RuleKind, ConversionStats],
 ) -> None:
     parse_file(source_dir / "anti-ad-adguard.txt", RuleKind.ADS, collectors, stats)
+
+
+def parse_coolapk_1007_reward(
+    source_path: Path,
+    collectors: dict[RuleKind, RuleCollector],
+    stats: dict[RuleKind, ConversionStats],
+) -> None:
+    parse_file(source_path, RuleKind.ADS, collectors, stats)
 
 
 def parse_file(
@@ -157,6 +167,7 @@ def write_manifest(result: ConversionResult, path: Path) -> None:
         "",
         f"- AdGuard Home For Magisk Mod: `{result.upstream_commits[UpstreamKind.ADGUARD_MAGISK]}`",
         f"- anti-AD: `{result.upstream_commits[UpstreamKind.ANTI_AD]}`",
+        f"- Coolapk 1007 reward: `{result.upstream_commits[UpstreamKind.COOLAPK_1007_REWARD]}`",
         "",
         "- 产物语义: 多上游 DNS 广告规则到 mihomo domain/ipcidr rule-provider 的保守转换。",
         f"- 例外规则已拆为 `{OUTPUT_PREFIX}_allow.*`, 建议在 mihomo `sub-rules` 中用 `PASS` 使用。",

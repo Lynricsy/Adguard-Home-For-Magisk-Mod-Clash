@@ -1,0 +1,108 @@
+name: Build and release mihomo MRS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 20 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout converter
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Clone upstream rules
+        run: |
+          git clone --depth=1 https://github.com/liuzq2002/Adguard-Home-For-Magisk-Mod upstream
+          echo "UPSTREAM_SHA=$(git -C upstream rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "RELEASE_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+
+      - name: Build text rule providers
+        run: |
+          uv run python -m scripts.build_rulesets \
+            --source upstream \
+            --output dist \
+            --upstream-commit "$UPSTREAM_SHA"
+
+      - name: Install latest mihomo
+        run: |
+          python3 - <<'PY' > /tmp/mihomo_url
+          from __future__ import annotations
+
+          import json
+          import urllib.request
+
+          with urllib.request.urlopen("https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", timeout=30) as response:
+              release = json.load(response)
+          for asset in release["assets"]:
+              name = asset["name"]
+              if name.startswith("mihomo-linux-amd64-") and name.endswith(".gz") and "-go" not in name:
+                  print(asset["browser_download_url"])
+                  raise SystemExit(0)
+          raise SystemExit("missing linux amd64 mihomo asset")
+          PY
+          curl -fsSL "$(cat /tmp/mihomo_url)" -o /tmp/mihomo.gz
+          gzip -d /tmp/mihomo.gz
+          chmod +x /tmp/mihomo
+          /tmp/mihomo -v
+
+      - name: Convert to MRS
+        run: |
+          set -euo pipefail
+          for file in dist/adguard_ads.txt dist/adguard_allow.txt dist/adguard_malware.txt; do
+            /tmp/mihomo convert-ruleset domain text "$file" "${file%.txt}.mrs"
+          done
+          for file in dist/adguard_ads_ipcidr.txt dist/adguard_allow_ipcidr.txt dist/adguard_malware_ipcidr.txt; do
+            if [ -s "$file" ]; then
+              /tmp/mihomo convert-ruleset ipcidr text "$file" "${file%.txt}.mrs"
+            fi
+          done
+          find dist -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          sha256sum -c dist/SHA256SUMS
+
+      - name: Prepare release notes
+        run: |
+          {
+            echo "# AdGuard Home For Magisk Mod mihomo MRS"
+            echo
+            echo "- Upstream: https://github.com/liuzq2002/Adguard-Home-For-Magisk-Mod"
+            echo "- Upstream commit: \`$UPSTREAM_SHA\`"
+            echo "- Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            cat dist/manifest.md
+          } > release-notes.md
+
+      - name: Check existing release
+        run: |
+          if gh release view "upstream-$UPSTREAM_SHA" >/dev/null 2>&1; then
+            echo "RELEASE_EXISTS=true" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_EXISTS=false" >> "$GITHUB_ENV"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish release
+        if: env.RELEASE_EXISTS != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: upstream-${{ env.UPSTREAM_SHA }}
+          name: mihomo MRS ${{ env.RELEASE_DATE }}
+          body_path: release-notes.md
+          files: |
+            dist/*.mrs
+            dist/*.txt
+            dist/manifest.md
+            dist/SHA256SUMS
+          make_latest: true
